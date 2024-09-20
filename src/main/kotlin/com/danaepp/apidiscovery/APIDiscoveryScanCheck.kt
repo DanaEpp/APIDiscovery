@@ -12,16 +12,48 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity
 import java.net.URI
 import java.time.LocalDateTime
+import kotlinx.coroutines.runBlocking
 
 class APIDiscoveryScanCheck( private val api: MontoyaApi ): ScanCheck {
 
     private val checkedHosts = mutableListOf<CheckedHost>()
+    private val checkedPaths = mutableListOf<CheckedPath>()
 
     override fun activeAudit(p0: HttpRequestResponse?, p1: AuditInsertionPoint?): AuditResult {
         return auditResult(emptyList())
     }
 
     override fun passiveAudit(baseRequestResponse: HttpRequestResponse?): AuditResult {
+        val auditIssues = mutableListOf<AuditIssue>()
+
+        conductMetadataDiscovery(baseRequestResponse)?.let { auditIssues.add(it) }
+        conductPathDiscovery(baseRequestResponse)?.let { auditIssues.add(it) }
+
+        return auditResult( auditIssues )
+    }
+
+    override fun consolidateIssues(newIssue: AuditIssue?, existingIssue: AuditIssue?): ConsolidationAction {
+        return if(existingIssue!!.baseUrl() == newIssue!!.baseUrl()) ConsolidationAction.KEEP_EXISTING
+        else ConsolidationAction.KEEP_BOTH
+    }
+
+    private fun getHostName(url: String): String {
+        val uri = URI(url)
+        return uri.host
+    }
+
+    private fun getTargetPath(url: String): String {
+        val uri = URI(url)
+        return (uri.scheme + "://" + uri.host + uri.path)
+    }
+
+    private fun isWithinLastHour(dateTime: LocalDateTime): Boolean {
+        val now = LocalDateTime.now()
+        val oneHourAgo = now.minusHours(1)
+        return dateTime.isAfter(oneHourAgo) && dateTime.isBefore(now)
+    }
+
+    private fun conductMetadataDiscovery(baseRequestResponse: HttpRequestResponse?): AuditIssue? {
         val detail = StringBuilder("")
 
         // This should never happen, but fall back to localhost if the hostname/IP is missing
@@ -32,7 +64,7 @@ class APIDiscoveryScanCheck( private val api: MontoyaApi ): ScanCheck {
 
         // Did we already scan this host in the last hour?
         if( targetHost != null && isWithinLastHour(targetHost.lastChecked)  ) {
-            return auditResult(emptyList())
+            return null
         }
 
         // Conduct actual API discovery. Currently only look for API.json.
@@ -114,41 +146,76 @@ class APIDiscoveryScanCheck( private val api: MontoyaApi ): ScanCheck {
         }
 
         if(detail.toString() == "" ){
-            return auditResult(emptyList())
+            return null
         }
 
-        return auditResult(
-            listOf(
-                AuditIssue.auditIssue(
-                    "API metadata discovered",
-                    detail.toString(),
-                    null,
-                    targetHost.apiMetadataURL,
-                    AuditIssueSeverity.INFORMATION,
-                    AuditIssueConfidence.CERTAIN,
-                    null,
-                    null,
-                    AuditIssueSeverity.LOW,
-                    baseRequestResponse
-                )
-            )
+        return AuditIssue.auditIssue(
+            "API metadata discovered",
+            detail.toString(),
+            null,
+            targetHost.apiMetadataURL,
+            AuditIssueSeverity.INFORMATION,
+            AuditIssueConfidence.CERTAIN,
+            null,
+            null,
+            AuditIssueSeverity.LOW,
+            baseRequestResponse
         )
     }
 
-    override fun consolidateIssues(newIssue: AuditIssue?, existingIssue: AuditIssue?): ConsolidationAction {
-        return if(existingIssue!!.baseUrl() == newIssue!!.baseUrl()) ConsolidationAction.KEEP_EXISTING
-        else ConsolidationAction.KEEP_BOTH
-    }
+    private fun conductPathDiscovery(baseRequestResponse: HttpRequestResponse?): AuditIssue? {
+        val detail = StringBuilder("")
 
-    private fun getHostName(url: String): String {
-        val uri = URI(url)
-        return uri.host
-    }
+        val target = getTargetPath(baseRequestResponse?.request()?.url() ?: "http://localhost")
 
-    private fun isWithinLastHour(dateTime: LocalDateTime): Boolean {
-        val now = LocalDateTime.now()
-        val oneHourAgo = now.minusHours(1)
-        return dateTime.isAfter(oneHourAgo) && dateTime.isBefore(now)
-    }
+        val index = checkedPaths.indexOfFirst { it.target == target }
+        var targetPath = if (index != -1) checkedPaths[index] else null
 
+        // Did we already scan this path in the last hour?
+        if( targetPath != null && isWithinLastHour(targetPath.lastChecked)  ) {
+            return null
+        }
+
+        runBlocking {
+            targetPath = APIDocPathEnumeration(api).enumerateAPIDocPaths(target)
+        }
+
+        if(targetPath?.apiDocPathDetected == true) {
+            detail.append(
+                "Potential API doc path(s) have been discovered at <a href=\"$target\">$target</a>"
+            ).append("<br><br>")
+
+            targetPath!!.detectedPaths?.takeIf { it.isNotEmpty() }?.let { paths ->
+                detail.append("Potential doc paths:").append("<br>")
+                paths.forEach { path ->
+                    detail.append(path).append("<br>")
+                }
+            }
+
+            detail.append("<br>")
+
+            api.logging().logToOutput("Detected potential API doc paths at $target")
+        }
+
+        checkedPaths.apply {
+            if (index != -1) targetPath?.let { set(index, it) } else targetPath?.let { add(it) }
+        }
+
+        if(detail.toString() == "" ){
+            return null
+        }
+
+        return AuditIssue.auditIssue(
+            "API doc path discovered",
+            detail.toString(),
+            null,
+            target,
+            AuditIssueSeverity.INFORMATION,
+            AuditIssueConfidence.CERTAIN,
+            null,
+            null,
+            AuditIssueSeverity.LOW,
+            baseRequestResponse
+        )
+    }
 }

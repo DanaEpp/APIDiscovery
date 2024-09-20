@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.danaepp"
-version = "1.0-SNAPSHOT"
+version = "2.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -14,10 +14,12 @@ repositories {
 // Lock dependency version
 val montoyaVersion = "2023.12.1"
 val kotlinxSerializationVersion = "1.6.3"
+val kotlinxCoroutinesVersion = "1.9.0"
 
 dependencies {
     implementation("net.portswigger.burp.extensions:montoya-api:$montoyaVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 }
 
 tasks.test {
