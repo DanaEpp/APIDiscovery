@@ -143,7 +143,8 @@ class APIDocPathEnumeration(private val api: MontoyaApi?) {
         while (attempt < maxRetries) {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+                val uri = Utils().lenientUri(url)
+                connection = (uri.toURL().openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 3500
                     readTimeout = 3500

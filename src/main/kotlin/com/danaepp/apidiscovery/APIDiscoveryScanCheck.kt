@@ -37,14 +37,37 @@ class APIDiscoveryScanCheck( private val api: MontoyaApi ): ScanCheck {
         else ConsolidationAction.KEEP_BOTH
     }
 
-    private fun getHostName(url: String): String {
-        val uri = URI(url)
-        return uri.host
+    @Suppress("MemberVisibilityCanBePrivate")
+    internal fun getHostName(url: String): String {
+        val uri = Utils().lenientUri(url)
+
+        // URI.host can be null if authority has userinfo or is registry-based.
+        val host = uri.host ?: uri.authority?.let { auth ->
+            val noUser = auth.substringAfter('@', auth)   // drop userinfo if present
+            noUser.substringBefore(':')                    // drop port if present
+        }
+
+        return host?.takeIf { it.isNotBlank() }?.lowercase() ?: "localhost"
     }
 
-    private fun getTargetPath(url: String): String {
-        val uri = URI(url)
-        return (uri.scheme + "://" + uri.host + uri.path)
+    @Suppress("MemberVisibilityCanBePrivate")
+    internal fun getTargetPath(url: String): String {
+        val uri = Utils().lenientUri(url)
+
+        val scheme = uri.scheme ?: "http"
+
+        // Prefer URI.host; if null (userinfo/registry-based), derive from authority
+        val host = (uri.host ?: uri.authority?.let { auth ->
+            val noUser = auth.substringAfter('@', auth) // strip userinfo if present
+            noUser.substringBefore(':')                  // strip port if present
+        })?.takeIf { it.isNotBlank() } ?: "localhost"
+
+        val path = uri.rawPath?.takeIf { it.isNotEmpty() } ?: ""
+
+        // If you want to *also* keep ?query, uncomment next line and append `query` at the end
+        // val query = uri.rawQuery?.let { "?$it" } ?: ""
+
+        return "$scheme://$host$path" // + query
     }
 
     private fun isWithinLastHour(dateTime: LocalDateTime): Boolean {
