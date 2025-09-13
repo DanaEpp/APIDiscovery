@@ -49,10 +49,11 @@ class APIMetadataParser(private val api: MontoyaApi) {
             apiMetadata = json.decodeFromString<ApiJson>(metadata)
         }
         catch(ex: SerializationException) {
-            api.logging().logToError("Serialization exception:" + ex.message)
+            api.logging().logToError("Serialization exception in metadata parser:" +
+                    ex.message + "\n" + ex.stackTraceToString())
         }
         catch (exc: Exception) {
-            api.logging().logToError("General Exception: " + exc.message)
+            api.logging().logToError("General Exception in metadata parser: " + exc.message)
         }
 
         return apiMetadata

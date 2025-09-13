@@ -13,6 +13,9 @@ class APIDiscovery(private val api: MontoyaApi) {
         if (metadataDetected && metadataUrl.endsWith(".json")) {
             getResource(metadataUrl)?.let { rawMetadata ->
                 metadata = APIMetadataParser(api).parse(rawMetadata)
+                if (metadata == null) {
+                    api.logging().logToError("Failed to parse metadata from: $metadataUrl")
+                }
             }
         }
 
@@ -21,6 +24,9 @@ class APIDiscovery(private val api: MontoyaApi) {
         if( catalogDetected ) {
             getResource(catalogUrl)?.let { cdata ->
                 catalogData = APICatalogParser(api).parse(cdata)
+                if (catalogData == null) {
+                    api.logging().logToError("Failed to parse catalog from: $catalogUrl")
+                }
             }
         }
 
